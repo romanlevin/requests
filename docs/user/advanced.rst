@@ -5,6 +5,7 @@ Advanced Usage
 
 This document covers some of Requests more advanced features.
 
+.. _session-objects:
 
 Session Objects
 ---------------
@@ -50,6 +51,8 @@ parameters.
 All values that are contained within a session are directly available to you.
 See the :ref:`Session API Docs <sessionapi>` to learn more.
 
+.. _request-and-response-objects:
+
 Request and Response Objects
 ----------------------------
 
@@ -81,6 +84,8 @@ request, and then the request's headers::
     >>> r.request.headers
     {'Accept-Encoding': 'identity, deflate, compress, gzip',
     'Accept': '*/*', 'User-Agent': 'python-requests/1.2.0'}
+
+.. _prepared-requests:
 
 Prepared Requests
 -----------------
@@ -166,7 +171,7 @@ I don't have SSL setup on this domain, so it fails. Excellent. GitHub does thoug
     >>> requests.get('https://github.com', verify=True)
     <Response [200]>
 
-You can also pass ``verify`` the path to a CA_BUNDLE file for private certs. You can also set the ``REQUESTS_CA_BUNDLE`` environment variable.
+You can pass ``verify`` the path to a CA_BUNDLE file with certificates of trusted CAs. This list of trusted CAs can also be specified through the ``REQUESTS_CA_BUNDLE`` environment variable.
 
 Requests can also ignore verifying the SSL certificate if you set ``verify`` to False.
 
@@ -189,12 +194,13 @@ If you specify a wrong path or an invalid cert::
     >>> requests.get('https://kennethreitz.com', cert='/wrong_path/server.pem')
     SSLError: [Errno 336265225] _ssl.c:347: error:140B0009:SSL routines:SSL_CTX_use_PrivateKey_file:PEM lib
 
+.. _body-content-workflow:
 
 Body Content Workflow
 ---------------------
 
 By default, when you make a request, the body of the response is downloaded
-immediately. You can override this behavior and defer downloading the response
+immediately. You can override this behaviour and defer downloading the response
 body until you access the :class:`Response.content <requests.Response.content>`
 attribute with the ``stream`` parameter::
 
@@ -228,6 +234,7 @@ consider using ``contextlib.closing`` (`documented here`_), like this::
 
 .. _`documented here`: http://docs.python.org/2/library/contextlib.html#contextlib.closing
 
+.. _keep-alive:
 
 Keep-Alive
 ----------
@@ -240,6 +247,7 @@ Note that connections are only released back to the pool for reuse once all body
 data has been read; be sure to either set ``stream`` to ``False`` or read the
 ``content`` property of the ``Response`` object.
 
+.. _streaming-uploads:
 
 Streaming Uploads
 -----------------
@@ -251,6 +259,7 @@ file-like object for your body::
     with open('massive-body', 'rb') as f:
         requests.post('http://some.url/streamed', data=f)
 
+.. _chunk-encoding:
 
 Chunk-Encoded Requests
 ----------------------
@@ -266,6 +275,32 @@ a length) for your body::
 
     requests.post('http://some.url/chunked', data=gen())
 
+
+.. _multipart:
+
+POST Multiple Multipart-Encoded Files
+-------------------------------------
+
+You can send multiple files in one request. For example, suppose you want to
+upload image files to an HTML form with a multiple file field 'images':
+
+    <input type="file" name="images" multiple="true" required="true"/>
+
+To do that, just set files to a list of tuples of (form_field_name, file_info):
+
+    >>> url = 'http://httpbin.org/post'
+    >>> multiple_files = [('images', ('foo.png', open('foo.png', 'rb'), 'image/png')),
+                          ('images', ('bar.png', open('bar.png', 'rb'), 'image/png'))]
+    >>> r = requests.post(url, files=multiple_files)
+    >>> r.text
+    {
+      ...
+      'files': {'images': 'data:image/png;base64,iVBORw ....'}
+      'Content-Type': 'multipart/form-data; boundary=3131623adb2043caaeb5538cc7aa0b3a',
+      ...
+    }
+
+.. _event-hooks:
 
 Event Hooks
 -----------
@@ -305,6 +340,7 @@ Let's print some request method arguments at runtime::
     http://httpbin.org
     <Response [200]>
 
+.. _custom-auth:
 
 Custom Authentication
 ---------------------
@@ -348,7 +384,7 @@ Streaming Requests
 
 With :class:`requests.Response.iter_lines()` you can easily
 iterate over streaming APIs such as the `Twitter Streaming
-API <https://dev.twitter.com/docs/streaming-api>`_. Simply
+API <https://dev.twitter.com/streaming/overview>`_. Simply
 set ``stream`` to ``True`` and iterate over the response with
 :class:`~requests.Response.iter_lines()`::
 
@@ -363,6 +399,20 @@ set ``stream`` to ``True`` and iterate over the response with
         if line:
             print(json.loads(line))
 
+.. warning::
+
+    :class:`~requests.Response.iter_lines()` is not reentrant safe.
+    Calling this method multiple times causes some of the received data
+    being lost. In case you need to call it from multiple places, use
+    the resulting iterator object instead::
+
+        lines = r.iter_lines()
+        # Save the first line for later or just skip it
+        first_line = next(lines)
+        for line in lines:
+            print(line)
+
+.. _proxies:
 
 Proxies
 -------
@@ -703,3 +753,59 @@ Two excellent examples are `grequests`_ and `requests-futures`_.
 
 .. _`grequests`: https://github.com/kennethreitz/grequests
 .. _`requests-futures`: https://github.com/ross/requests-futures
+
+Timeouts
+--------
+
+Most requests to external servers should have a timeout attached, in case the
+server is not responding in a timely manner. Without a timeout, your code may
+hang for minutes or more.
+
+The **connect** timeout is the number of seconds Requests will wait for your
+client to establish a connection to a remote machine (corresponding to the
+`connect()`_) call on the socket. It's a good practice to set connect timeouts
+to slightly larger than a multiple of 3, which is the default `TCP packet
+retransmission window <http://www.hjp.at/doc/rfc/rfc2988.txt>`_.
+
+Once your client has connected to the server and sent the HTTP request, the
+**read** timeout is the number of seconds the client will wait for the server
+to send a response. (Specifically, it's the number of seconds that the client
+will wait *between* bytes sent from the server. In 99.9% of cases, this is the
+time before the server sends the first byte).
+
+If you specify a single value for the timeout, like this::
+
+    r = requests.get('https://github.com', timeout=5)
+
+The timeout value will be applied to both the ``connect`` and the ``read``
+timeouts. Specify a tuple if you would like to set the values separately::
+
+    r = requests.get('https://github.com', timeout=(3.05, 27))
+
+If the remote server is very slow, you can tell Requests to wait forever for
+a response, by passing None as a timeout value and then retrieving a cup of
+coffee.
+
+.. code-block:: python
+
+    r = requests.get('https://github.com', timeout=None)
+
+.. _`connect()`: http://linux.die.net/man/2/connect
+
+CA Certificates
+---------------
+
+By default Requests bundles a set of root CAs that it trusts, sourced from the
+`Mozilla trust store`_. However, these are only updated once for each Requests
+version. This means that if you pin a Requests version your certificates can
+become extremely out of date.
+
+From Requests version 2.4.0 onwards, Requests will attempt to use certificates
+from `certifi`_ if it is present on the system. This allows for users to update
+their trusted certificates without having to change the code that runs on their
+system.
+
+For the sake of security we recommend upgrading certifi frequently!
+
+.. _certifi: http://certifi.io/
+.. _Mozilla trust store: https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt

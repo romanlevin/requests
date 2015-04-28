@@ -29,9 +29,9 @@ Begin by importing the Requests module::
 Now, let's try to get a webpage. For this example, let's get GitHub's public
 timeline ::
 
-    >>> r = requests.get('https://github.com/timeline.json')
+    >>> r = requests.get('https://api.github.com/events')
 
-Now, we have a :class:`Request <requests.Request>` object called ``r``. We can
+Now, we have a :class:`Response <requests.Response>` object called ``r``. We can
 get all the information we need from this object.
 
 Requests' simple API means that all forms of HTTP request are as obvious. For
@@ -73,6 +73,13 @@ You can see that the URL has been correctly encoded by printing the URL::
 Note that any dictionary key whose value is ``None`` will not be added to the
 URL's query string.
 
+In order to pass a list of items as a value you must mark the key as
+referring to a list like string by appending ``[]`` to the key::
+
+    >>> payload = {'key1': 'value1', 'key2[]': ['value2', 'value3']}
+    >>> r = requests.get("http://httpbin.org/get", params=payload)
+    >>> print(r.url)
+    http://httpbin.org/get?key1=value1&key2%5B%5D=value2&key2%5B%5D=value3
 
 Response Content
 ----------------
@@ -81,7 +88,7 @@ We can read the content of the server's response. Consider the GitHub timeline
 again::
 
     >>> import requests
-    >>> r = requests.get('https://github.com/timeline.json')
+    >>> r = requests.get('https://api.github.com/events')
     >>> r.text
     u'[{"repository":{"open_issues":0,"url":"https://github.com/...
 
@@ -134,7 +141,7 @@ JSON Response Content
 There's also a builtin JSON decoder, in case you're dealing with JSON data::
 
     >>> import requests
-    >>> r = requests.get('https://github.com/timeline.json')
+    >>> r = requests.get('https://api.github.com/events')
     >>> r.json()
     [{u'repository': {u'open_issues': 0, u'url': 'https://github.com/...
 
@@ -150,7 +157,7 @@ In the rare case that you'd like to get the raw socket response from the
 server, you can access ``r.raw``. If you want to do this, make sure you set
 ``stream=True`` in your initial request. Once you do, you can do this::
 
-    >>> r = requests.get('https://github.com/timeline.json', stream=True)
+    >>> r = requests.get('https://api.github.com/events', stream=True)
     >>> r.raw
     <requests.packages.urllib3.response.HTTPResponse object at 0x101194810>
     >>> r.raw.read(10)
@@ -179,10 +186,18 @@ For example, we didn't specify our content-type in the previous example::
 
     >>> import json
     >>> url = 'https://api.github.com/some/endpoint'
-    >>> payload = {'some': 'data'}
-    >>> headers = {'content-type': 'application/json'}
+    >>> headers = {'user-agent': 'my-app/0.0.1'}
 
-    >>> r = requests.post(url, data=json.dumps(payload), headers=headers)
+    >>> r = requests.get(url, headers=headers)
+
+Note: Custom headers are given less precedence than more specific sources of information. For instance:
+
+* Authorization headers will be overridden if credentials are passed via the ``auth`` parameter or are specified in a ``.netrc`` accessible in the environment.
+* Authorization headers will be removed if you get redirected off-host.
+* Proxy-Authorization headers will be overridden by proxy credentials provided in the URL.
+* Content-Length headers will be overridden when we can determine the length of the content.
+
+Furthermore, Requests does not change its behavior at all based on which custom headers are specified. The headers are simply passed on into the final request.
 
 
 More complicated POST requests
@@ -268,7 +283,10 @@ In the event you are posting a very large file as a ``multipart/form-data``
 request, you may want to stream the request. By default, ``requests`` does not
 support this, but there is a separate package which does -
 ``requests-toolbelt``. You should read `the toolbelt's documentation
-<https://toolbelt.rtfd.org>`_ for more details about how to use it.
+<https://toolbelt.readthedocs.org>`_ for more details about how to use it.
+
+For sending multiple files in one request refer to the :ref:`advanced <advanced>`
+section.
 
 
 Response Status Codes
@@ -337,6 +355,15 @@ So, we can access the headers using any capitalization we want::
     >>> r.headers.get('content-type')
     'application/json'
 
+It is also special in that the server could have sent the same header multiple
+times with different values, but requests combines them so they can be
+represented in the dictionary within a single mapping, as per
+`RFC 7230 <http://tools.ietf.org/html/rfc7230#section-3.2>`_:
+
+    > A recipient MAY combine multiple header fields with the same field name
+    > into one "field-name: field-value" pair, without changing the semantics
+    > of the message, by appending each subsequent field value to the combined
+    > field value in order, separated by a comma.
 
 Cookies
 -------
@@ -369,9 +396,9 @@ HEAD.
 We can use the ``history`` property of the Response object to track redirection.
 
 The :meth:`Response.history <requests.Response.history>` list contains the
-:class:`Request <requests.Request>` objects that were created in order to
+:class:`Response <requests.Response>` objects that were created in order to
 complete the request. The list is sorted from the oldest to the most recent
-request.
+response.
 
 For example, GitHub redirects all HTTP requests to HTTPS::
 
